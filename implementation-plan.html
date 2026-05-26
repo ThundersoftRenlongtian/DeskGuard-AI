@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DeskGuard AI — 实现方案书</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','PingFang SC','Microsoft YaHei',sans-serif;background:#0a0f1a;color:#e2e8f0;line-height:1.8;padding:40px 20px}
+.container{max-width:900px;margin:0 auto}
+h1{font-size:32px;font-weight:800;text-align:center;margin-bottom:8px;background:linear-gradient(135deg,#00d4ff,#a855f7);-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+.subtitle{text-align:center;color:#7a8ba5;font-size:14px;margin-bottom:50px}
+h2{font-size:22px;font-weight:700;margin:50px 0 20px;padding-bottom:10px;border-bottom:1px solid rgba(0,212,255,0.15);color:#00d4ff}
+h3{font-size:16px;font-weight:600;margin:28px 0 12px;color:#e2e8f0}
+p{margin:10px 0;color:#94a3b8;font-size:14px}
+.card{background:rgba(12,18,35,0.92);border:1px solid rgba(0,212,255,0.1);border-radius:14px;padding:28px;margin:20px 0}
+.highlight{background:linear-gradient(135deg,rgba(0,212,255,0.04),rgba(168,85,247,0.04));border-color:rgba(168,85,247,0.2)}
+table{width:100%;border-collapse:collapse;margin:16px 0;font-size:13px}
+th,td{padding:10px 14px;text-align:left;border:1px solid rgba(0,212,255,0.08)}
+th{background:rgba(0,212,255,0.06);color:#00d4ff;font-weight:600;font-size:12px}
+td{color:#94a3b8}
+tr:hover td{background:rgba(0,212,255,0.02)}
+code{background:rgba(0,212,255,0.08);padding:2px 8px;border-radius:4px;font-size:12.5px;color:#00d4ff;font-family:'JetBrains Mono','Fira Code',monospace}
+pre{background:rgba(0,0,0,0.4);border:1px solid rgba(0,212,255,0.1);border-radius:10px;padding:20px;overflow-x:auto;margin:16px 0;font-size:12px;line-height:1.7;color:#a8b5c7}
+.arch-diagram{text-align:center;padding:30px;background:rgba(0,0,0,0.3);border-radius:12px;margin:20px 0}
+.badge{display:inline-block;padding:4px 12px;border-radius:20px;font-size:11px;font-weight:600;margin-right:6px}
+.badge-p0{background:rgba(239,68,68,0.1);color:#ef4444;border:1px solid rgba(239,68,68,0.2)}
+.badge-p1{background:rgba(245,158,11,0.1);color:#f59e0b;border:1px solid rgba(245,158,11,0.2)}
+.badge-p2{background:rgba(34,197,94,0.1);color:#22c55e;border:1px solid rgba(34,197,94,0.2)}
+ul,ol{margin:10px 0 10px 24px;color:#94a3b8;font-size:13.5px}
+li{margin:6px 0}
+li strong{color:#e2e8f0}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+@media(max-width:768px){.grid2{grid-template-columns:1fr}}
+.step{display:flex;gap:14px;margin:14px 0}
+.step-num{width:32px;height:32px;min-width:32px;background:linear-gradient(135deg,#00d4ff,#a855f7);border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700;color:#fff}
+.step-content{flex:1}
+.step-content h4{font-size:14px;margin-bottom:4px}
+.step-content p{font-size:12.5px;margin:0}
+</style>
+</head>
+<body>
+<div class="container">
+
+<h1>DeskGuard AI</h1>
+<p class="subtitle">AI Agent 桌面健康教练 · 本地实现方案书</p>
+
+<!-- 项目目标 -->
+<h2>一、项目目标</h2>
+<div class="card highlight">
+<p style="color:#e2e8f0;font-size:15px;text-align:center;margin:0">
+在 Windows 电脑上实现一个<strong>可运行的 Demo</strong>：<br>
+PC 摄像头实时检测坐姿 → AI Agent 智能决策 → 桌面弹窗 + 灯光提醒
+</p>
+</div>
+
+<!-- 功能清单 -->
+<h2>二、功能清单</h2>
+<table>
+<thead><tr><th>编号</th><th>功能</th><th>说明</th><th>优先级</th></tr></thead>
+<tbody>
+<tr><td>F1</td><td><strong>实时坐姿检测</strong></td><td>摄像头 + MediaPipe 检测 33 个身体关键点</td><td><span class="badge badge-p0">P0 必做</span></td></tr>
+<tr><td>F2</td><td><strong>坐姿分类</strong></td><td>根据关键点角度判断：正常/驼背/前倾/歪坐/低头</td><td><span class="badge badge-p0">P0 必做</span></td></tr>
+<tr><td>F3</td><td><strong>久坐计时</strong></td><td>连续在座时间累计，超过阈值触发提醒</td><td><span class="badge badge-p0">P0 必做</span></td></tr>
+<tr><td>F4</td><td><strong>AI Agent 提醒</strong></td><td>触发后调 DeepSeek API 生成个性化提醒内容</td><td><span class="badge badge-p0">P0 必做</span></td></tr>
+<tr><td>F5</td><td><strong>桌面弹窗</strong></td><td>Windows 系统通知显示 AI 生成的提醒</td><td><span class="badge badge-p0">P0 必做</span></td></tr>
+<tr><td>F6</td><td><strong>LED 灯光模拟</strong></td><td>界面上用色块模拟灯光状态（绿/黄/红）</td><td><span class="badge badge-p1">P1 重要</span></td></tr>
+<tr><td>F7</td><td><strong>数据记录</strong></td><td>SQLite 记录每次检测结果和提醒事件</td><td><span class="badge badge-p1">P1 重要</span></td></tr>
+<tr><td>F8</td><td><strong>AI 健康日报</strong></td><td>每天结束时调 API 生成健康总结报告</td><td><span class="badge badge-p2">P2 增强</span></td></tr>
+<tr><td>F9</td><td><strong>偏好学习</strong></td><td>记录用户反馈，调整阈值和频率</td><td><span class="badge badge-p2">P2 增强</span></td></tr>
+</tbody>
+</table>
+
+<!-- 技术架构 -->
+<h2>三、技术架构</h2>
+
+<div class="arch-diagram">
+<svg viewBox="0 0 700 320" width="100%" style="max-width:700px">
+<!-- Camera -->
+<rect x="20" y="40" width="120" height="50" rx="8" fill="rgba(0,212,255,0.06)" stroke="rgba(0,212,255,0.3)" stroke-width="1.5"/>
+<text x="80" y="62" font-size="10" fill="#00d4ff" text-anchor="middle" font-weight="600">📷 PC 摄像头</text>
+<text x="80" y="78" font-size="8" fill="#7a8ba5" text-anchor="middle">OpenCV 采集</text>
+
+<!-- Arrow -->
+<path d="M140 65 L170 65" stroke="#00d4ff" stroke-width="1.5" marker-end="url(#arr)"/>
+
+<!-- MediaPipe -->
+<rect x="170" y="40" width="140" height="50" rx="8" fill="rgba(0,212,255,0.06)" stroke="rgba(0,212,255,0.3)" stroke-width="1.5"/>
+<text x="240" y="62" font-size="10" fill="#00d4ff" text-anchor="middle" font-weight="600">🧠 MediaPipe Pose</text>
+<text x="240" y="78" font-size="8" fill="#7a8ba5" text-anchor="middle">33 关键点实时检测</text>
+
+<!-- Arrow -->
+<path d="M310 65 L340 65" stroke="#00d4ff" stroke-width="1.5" marker-end="url(#arr)"/>
+
+<!-- Classifier -->
+<rect x="340" y="40" width="140" height="50" rx="8" fill="rgba(245,158,11,0.06)" stroke="rgba(245,158,11,0.3)" stroke-width="1.5"/>
+<text x="410" y="62" font-size="10" fill="#f59e0b" text-anchor="middle" font-weight="600">📐 坐姿分类器</text>
+<text x="410" y="78" font-size="8" fill="#7a8ba5" text-anchor="middle">角度计算 + 规则判断</text>
+
+<!-- Arrow down -->
+<path d="M410 90 L410 120" stroke="#f59e0b" stroke-width="1.5" marker-end="url(#arr)"/>
+
+<!-- State Machine -->
+<rect x="340" y="120" width="140" height="50" rx="8" fill="rgba(245,158,11,0.06)" stroke="rgba(245,158,11,0.3)" stroke-width="1.5"/>
+<text x="410" y="142" font-size="10" fill="#f59e0b" text-anchor="middle" font-weight="600">⏱️ 状态机</text>
+<text x="410" y="158" font-size="8" fill="#7a8ba5" text-anchor="middle">计时 / 触发 / 冷却</text>
+
+<!-- Arrow down -->
+<path d="M410 170 L410 200" stroke="#a855f7" stroke-width="1.5" marker-end="url(#arr)"/>
+
+<!-- AI Agent -->
+<rect x="280" y="200" width="260" height="60" rx="10" fill="rgba(168,85,247,0.06)" stroke="rgba(168,85,247,0.4)" stroke-width="2"/>
+<text x="410" y="222" font-size="11" fill="#a855f7" text-anchor="middle" font-weight="700">🤖 DeepSeek AI Agent</text>
+<text x="410" y="240" font-size="8" fill="#7a8ba5" text-anchor="middle">Function Calling · 理解状态 · 生成内容 · 控制输出</text>
+<text x="410" y="254" font-size="7" fill="#a855f7" text-anchor="middle">send_notification() · set_led_color() · get_today_stats()</text>
+
+<!-- Arrows to outputs -->
+<path d="M330 260 L200 290" stroke="#22c55e" stroke-width="1.5" marker-end="url(#arr)"/>
+<path d="M410 260 L410 290" stroke="#22c55e" stroke-width="1.5" marker-end="url(#arr)"/>
+<path d="M490 260 L600 290" stroke="#22c55e" stroke-width="1.5" marker-end="url(#arr)"/>
+
+<!-- Outputs -->
+<rect x="130" y="290" width="120" height="35" rx="6" fill="rgba(34,197,94,0.06)" stroke="rgba(34,197,94,0.3)" stroke-width="1"/>
+<text x="190" y="312" font-size="9" fill="#22c55e" text-anchor="middle">💡 LED 灯光</text>
+
+<rect x="350" y="290" width="120" height="35" rx="6" fill="rgba(34,197,94,0.06)" stroke="rgba(34,197,94,0.3)" stroke-width="1"/>
+<text x="410" y="312" font-size="9" fill="#22c55e" text-anchor="middle">🔔 桌面弹窗</text>
+
+<rect x="540" y="290" width="120" height="35" rx="6" fill="rgba(34,197,94,0.06)" stroke="rgba(34,197,94,0.3)" stroke-width="1"/>
+<text x="600" y="312" font-size="9" fill="#22c55e" text-anchor="middle">📊 数据/日报</text>
+
+<defs><marker id="arr" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto"><polygon points="0 0,8 3,0 6" fill="#7a8ba5"/></marker></defs>
+</svg>
+</div>
+
+<!-- 坐姿分类 -->
+<h2>四、坐姿分类算法</h2>
+<div class="card">
+<p style="color:#e2e8f0">使用 MediaPipe Pose 的 33 个关键点，计算关键角度进行坐姿判断：</p>
+<table>
+<thead><tr><th>检测项</th><th>使用关键点</th><th>判断方法</th><th>阈值</th></tr></thead>
+<tbody>
+<tr><td>驼背</td><td>耳朵 → 肩膀 → 髋部</td><td>三点连线角度</td><td>&lt; 155°</td></tr>
+<tr><td>前倾</td><td>肩膀中点 vs 髋部中点</td><td>水平位移比</td><td>&gt; 设定值</td></tr>
+<tr><td>低头</td><td>鼻子 → 肩膀中点</td><td>垂直俯角</td><td>&gt; 20°</td></tr>
+<tr><td>歪坐</td><td>左肩 vs 右肩</td><td>Y 坐标高度差</td><td>&gt; 5%</td></tr>
+</tbody>
+</table>
+</div>
+
+<!-- AI Agent -->
+<h2>五、AI Agent 设计</h2>
+
+<h3>5.1 模型选型</h3>
+<div class="grid2">
+<div class="card">
+<p><strong style="color:#00d4ff">模型：</strong>DeepSeek-V3 / DeepSeek-Chat</p>
+<p><strong style="color:#00d4ff">接口：</strong>OpenAI 兼容格式</p>
+<p><strong style="color:#00d4ff">日均成本：</strong>约 0.1-0.2 元</p>
+</div>
+<div class="card">
+<p><strong style="color:#a855f7">核心能力：</strong></p>
+<ul>
+<li>Function Calling（控制灯光/通知）</li>
+<li>多轮对话（理解上下文）</li>
+<li>自然语言生成（提醒文案/日报）</li>
+</ul>
+</div>
+</div>
+
+<h3>5.2 Function Calling Tools</h3>
+<pre>
+tools = [
+    {
+        "name": "send_notification",
+        "description": "发送桌面弹窗通知给用户",
+        "parameters": {
+            "title": "string - 通知标题",
+            "message": "string - 通知内容",
+            "priority": "gentle | normal | urgent"
+        }
+    },
+    {
+        "name": "set_led_color",
+        "description": "设置LED灯颜色反馈",
+        "parameters": {
+            "color": "green | yellow | red",
+            "duration_sec": "number"
+        }
+    },
+    {
+        "name": "get_today_stats",
+        "description": "获取今日健康统计",
+        "parameters": {}
+    }
+]
+</pre>
+
+<h3>5.3 Agent System Prompt</h3>
+<div class="card" style="border-color:rgba(168,85,247,0.3)">
+<pre style="margin:0;border:none;padding:0;background:transparent;color:#c4b5fd">
+你是 DeskGuard AI 健康教练。
+
+你的职责：
+1. 根据用户坐姿数据，决定是否需要提醒
+2. 选择合适的提醒方式和内容
+3. 生成温和、有用的建议
+
+决策原则：
+- 不要过于频繁打扰用户
+- 提醒内容要具体（"肩膀前倾了5°"比"注意坐姿"好）
+- 鼓励为主，不制造焦虑
+- 如果用户刚被提醒过，除非情况恶化，不要重复提醒
+</pre>
+</div>
+
+<!-- 开发步骤 -->
+<h2>六、开发步骤</h2>
+
+<div class="step"><div class="step-num">1</div><div class="step-content"><h4>环境搭建 + 摄像头采集</h4><p>安装 mediapipe、opencv-python，打开摄像头显示骨骼关键点</p></div></div>
+<div class="step"><div class="step-num">2</div><div class="step-content"><h4>坐姿分类算法</h4><p>计算肩部角度、头部偏移，实时显示当前坐姿状态</p></div></div>
+<div class="step"><div class="step-num">3</div><div class="step-content"><h4>状态机 + 触发逻辑</h4><p>驼背 60 秒触发、久坐 45 分钟触发、冷却机制</p></div></div>
+<div class="step"><div class="step-num">4</div><div class="step-content"><h4>接入 DeepSeek API</h4><p>发送坐姿数据 → Agent 生成提醒 → 解析 Function Call</p></div></div>
+<div class="step"><div class="step-num">5</div><div class="step-content"><h4>输出执行</h4><p>桌面弹窗通知 + LED 颜色模拟 + 数据记录</p></div></div>
+<div class="step"><div class="step-num">6</div><div class="step-content"><h4>集成测试 + 演示</h4><p>完整链路测试，录制演示视频</p></div></div>
+
+<!-- 文件结构 -->
+<h2>七、项目文件结构</h2>
+<pre>
+deskguard-demo/
+├── main.py                 # 主程序入口
+├── pose_detector.py        # MediaPipe 姿态检测
+├── posture_classifier.py   # 坐姿分类（角度规则）
+├── state_machine.py        # 状态机（计时/触发/冷却）
+├── agent.py                # DeepSeek Agent + Function Calling
+├── notifier.py             # Windows 桌面通知
+├── led_simulator.py        # LED 灯光模拟
+├── data_store.py           # SQLite 数据记录
+├── config.py               # 配置（API Key / 阈值）
+└── requirements.txt        # 依赖清单
+</pre>
+
+<!-- 配置 -->
+<h2>八、配置参数</h2>
+<pre>
+# config.py
+DEEPSEEK_API_KEY = "sk-xxx"           # platform.deepseek.com 获取
+DEEPSEEK_BASE_URL = "https://api.deepseek.com"
+DEEPSEEK_MODEL = "deepseek-chat"
+
+# 坐姿阈值
+SLOUCH_ANGLE_THRESHOLD = 155          # 肩部角度 < 此值 = 驼背
+HEAD_DOWN_THRESHOLD = 20              # 头部俯角 > 此值 = 低头
+SHOULDER_TILT_THRESHOLD = 0.05        # 左右肩高差比
+
+# 提醒策略
+POSTURE_ALERT_SECONDS = 60            # 不良坐姿60秒触发
+SIT_DURATION_MINUTES = 45             # 久坐45分钟触发
+COOLDOWN_MINUTES = 10                 # 提醒冷却
+</pre>
+
+<!-- 运行 -->
+<h2>九、如何运行</h2>
+<div class="card">
+<pre style="margin:0;border:none;padding:0;background:transparent">
+cd deskguard-demo
+pip install -r requirements.txt
+python main.py
+</pre>
+<p style="margin-top:14px">启动后会打开摄像头窗口，实时显示骨骼点和坐姿状态。当检测到问题并触发提醒时，会弹出 Windows 系统通知。</p>
+</div>
+
+<!-- 所需资源 -->
+<h2>十、所需资源</h2>
+<table>
+<thead><tr><th>资源</th><th>说明</th><th>获取方式</th></tr></thead>
+<tbody>
+<tr><td>PC 摄像头</td><td>笔记本内置或 USB 外接</td><td>已有</td></tr>
+<tr><td>DeepSeek API Key</td><td>AI Agent 调用</td><td>platform.deepseek.com 注册，充值 10 元</td></tr>
+<tr><td>Python 3.10+</td><td>运行环境</td><td>已安装</td></tr>
+</tbody>
+</table>
+
+</div>
+</body>
+</html>

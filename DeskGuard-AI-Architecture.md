@@ -1,488 +1,518 @@
-# DeskGuard AI — AI Agent 桌面健康效率助手
+# DeskGuard AI — 技术方案详解
 
-## 项目实现架构书 & 详细实现方案
+## AI Agent 桌面健康效率助手 · 完整技术实现文档
 
 > **竞赛：** 中科创达 "AI+智能硬件" 创意征集  
 > **提交人：** 田仁龙  
-> **核心亮点：** 端侧实时感知（RV1106 NPU）+ DeepSeek AI Agent（Function Calling）的协同架构
+> **当前版本：** PC Demo（已实现并可运行）  
+> **核心技术栈：** MediaPipe Pose + 小米 MiMo AI Agent (Function Calling) + 双摄像头融合
 
 ---
 
-## 一、项目概述
-
-**产品名称：** DeskGuard AI — AI Agent 桌面健康效率助手
-
-**定位：** 基于 **端侧 NPU 实时感知 + DeepSeek AI Agent 智能决策** 的桌面健康硬件，让办公桌具备"看姿态、懂状态、会对话、能教练"的能力。
-
-**核心创新：** 不同于传统规则引擎的健康硬件，DeskGuard AI 以大模型 Agent 为决策中枢，通过 Function Calling 调度端侧设备和服务，实现**自然语言交互、上下文感知决策、个性化健康教练**。
-
-**目标用户：** 长期伏案办公人群（程序员、设计师、产品经理、运营、财务、远程办公者、学生、游戏/内容创作者），关注员工健康的企业 HR/行政/工会。
-
-**应用场景：** 公司办公桌、家庭书房、共享办公空间、学校自习室、研发中心、呼叫中心。
-
----
-
-## 二、系统总体架构
+## 一、技术架构总览
 
 ```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                     DeskGuard AI Agent 系统总体架构                           │
-├─────────────────────────────────────────────────────────────────────────────┤
-│                                                                             │
-│  ┌─────────────────────────────────────────────────────────────────────┐    │
-│  │          🔮 AI Agent 决策中枢 (DeepSeek via DeepSeek)            │    │
-│  │                                                                     │    │
-│  │  ┌──────────────┐  ┌──────────────┐  ┌──────────────────────────┐ │    │
-│  │  │ 多轮对话理解  │  │ Function     │  │ Agent Memory (上下文记忆) │ │    │
-│  │  │ + 意图识别    │  │ Calling调度  │  │ 用户偏好/历史/习惯学习    │ │    │
-│  │  └──────────────┘  └──────────────┘  └──────────────────────────┘ │    │
-│  │                                                                     │    │
-│  │  Function Tools:                                                    │    │
-│  │  ┌──────────┐┌──────────┐┌──────────┐┌──────────┐┌──────────┐   │    │
-│  │  │get_posture│set_led_  ││send_     ││get_      ││generate_ │   │    │
-│  │  │_data()   ││pattern() ││reminder()││calendar()││report()  │   │    │
-│  │  └──────────┘└──────────┘└──────────┘└──────────┘└──────────┘   │    │
-│  │  ┌──────────┐┌──────────┐┌──────────┐                           │    │
-│  │  │speak_    ││get_      ││set_user_ │                           │    │
-│  │  │tts()     ││history() ││prefs()   │                           │    │
-│  │  └──────────┘└──────────┘└──────────┘                           │    │
-│  └─────────────────────────────────────────────────────────────────────┘    │
-│         ▲  结构化数据(坐标+标签+时间戳)   │  Function Call 指令               │
-│         │  NEVER 图像上传                 ▼                                  │
-│  ┌──────────────────────────────┐  ┌──────────────────────────────────┐    │
-│  │   🧠 端侧 AI 感知层 (Edge)    │  │      📡 执行输出层 (Output)        │    │
-│  │                              │  │                                  │    │
-│  │  ┌─────────┐ ┌───────────┐  │  │  ┌──────┐ ┌──────┐ ┌────────┐ │    │
-│  │  │MoveNet  │ │MobileNet  │  │  │  │LED灯 │ │TTS   │ │PC弹窗  │ │    │
-│  │  │Lightning│ │V3-small   │  │  │  │(情绪) │ │语音  │ │通知    │ │    │
-│  │  │17关键点 │ │5类坐姿    │  │  │  └──────┘ └──────┘ └────────┘ │    │
-│  │  └─────────┘ └───────────┘  │  │  ┌──────┐ ┌──────┐ ┌────────┐ │    │
-│  │                              │  │  │App   │ │报告  │ │企业    │ │    │
-│  │  RV1106 · 0.5T RKNN NPU    │  │  │推送  │ │生成  │ │看板    │ │    │
-│  │  30fps · <10ms · 全本地处理  │  │  └──────┘ └──────┘ └────────┘ │    │
-│  └──────────────────────────────┘  └──────────────────────────────────┘    │
-│                                                                             │
-│  ┌─────────────────────────────────────────────────────────────────────┐    │
-│  │                   🔧 硬件感知层 (Hardware Sensing)                     │    │
-│  │                                                                     │    │
-│  │  ┌─────────┐ ┌─────────┐ ┌─────────┐ ┌─────────┐ ┌─────────┐   │    │
-│  │  │GC2053   │ │BH1750   │ │SHT30    │ │麦克风   │ │扬声器   │   │    │
-│  │  │RGB摄像头│ │环境光   │ │温湿度   │ │语音输入 │ │语音输出 │   │    │
-│  │  └─────────┘ └─────────┘ └─────────┘ └─────────┘ └─────────┘   │    │
-│  └─────────────────────────────────────────────────────────────────────┘    │
-└─────────────────────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────────────┐
+│                   DeskGuard AI 系统架构（已实现）                         │
+├─────────────────────────────────────────────────────────────────────────┤
+│                                                                         │
+│  ┌─────────────────────────────────────────────────────────────────┐   │
+│  │          🧠 AI Agent 决策层 — 小米 MiMo 大模型                    │   │
+│  │                                                                   │   │
+│  │  System Prompt (健康教练人设)                                     │   │
+│  │       ↓                                                           │   │
+│  │  接收事件 → 推理决策 → Function Calling 输出动作                  │   │
+│  │                                                                   │   │
+│  │  Tools:  send_notification(title, message)                       │   │
+│  │          set_led_color(color)                                     │   │
+│  └─────────────────────────────────────────────────────────────────┘   │
+│         ▲  结构化事件                    │  动作指令                     │
+│         │  (坐姿类别+持续时间)            ▼                             │
+│  ┌──────────────────────────────┐  ┌──────────────────────────────┐   │
+│  │   👁️ 感知层 — MediaPipe Pose  │  │     📢 执行层 — 本地输出       │   │
+│  │                              │  │                              │   │
+│  │  正面摄像头 → 33关键点检测   │  │  Windows 桌面通知 (plyer)    │   │
+│  │  侧面摄像头 → 33关键点检测   │  │  LED 灯光模拟 (OpenCV)      │   │
+│  │       ↓                      │  │  终端日志输出                │   │
+│  │  角度计算 → 坐姿分类         │  │                              │   │
+│  │  状态机 → 触发事件           │  │                              │   │
+│  └──────────────────────────────┘  └──────────────────────────────┘   │
+│                                                                         │
+│  ┌─────────────────────────────────────────────────────────────────┐   │
+│  │                  ⏱️ 状态管理层 — 本地状态机                       │   │
+│  │                                                                   │   │
+│  │  不良坐姿持续计时 → 60秒触发 posture_alert                       │   │
+│  │  总久坐时间累计  → 45分钟触发 sit_alert                          │   │
+│  │  冷却机制       → 每次提醒后 10分钟不重复                        │   │
+│  └─────────────────────────────────────────────────────────────────┘   │
+└─────────────────────────────────────────────────────────────────────────┘
 ```
-
-### 架构设计原则
-
-1. **隐私第一：** 摄像头画面从不离开设备，仅上传结构化坐标数据
-2. **Agent 为脑：** 所有决策（何时提醒、如何提醒、生成什么内容）由DeepSeek Agent 完成
-3. **Edge 为眼：** NPU 仅负责实时感知，不做决策
-4. **Function Calling 为手：** Agent 通过标准化工具接口控制硬件和服务
 
 ---
 
-## 三、AI Agent 架构详解
+## 二、核心技术详解
 
-### 3.1 Agent 模型选型
+### 2.1 MediaPipe PoseLandmarker（姿态检测引擎）
 
-| 项目 | 选择 | 理由 |
-|------|------|------|
-| 基座模型 | DeepSeek | 旗舰级Agent模型，原生支持Function Calling |
-| 接入方式 | DeepSeek API  | 国内服务稳定，延迟低 |
-| 定价 | 输入1元/百万token，输出2元/百万token (DeepSeek-V3) | 日均成本约0.1-0.3元 |
-| 多模态 | 支持文本+图像理解 | 可用于解析日历截图等（可选） |
+**是什么：** Google 开源的实时人体姿态检测模型，能从一帧图像中定位 33 个人体关键点。
 
-### 3.2 Function Calling Tools 定义
+**我们怎么用的：**
 
-```json
-{
-  "tools": [
+```python
+# pose_detector.py 核心逻辑
+
+from mediapipe.tasks.python.vision import PoseLandmarker, PoseLandmarkerOptions, RunningMode
+
+# 使用 VIDEO 模式（逐帧处理，带跟踪）
+options = PoseLandmarkerOptions(
+    base_options=BaseOptions(model_asset_path="pose_landmarker_lite.task"),
+    running_mode=RunningMode.VIDEO,
+    num_poses=1,                         # 只检测一人
+    min_pose_detection_confidence=0.5,   # 检测置信度阈值
+    min_tracking_confidence=0.5,         # 跟踪置信度阈值
+)
+landmarker = PoseLandmarker.create_from_options(options)
+
+# 每帧调用
+result = landmarker.detect_for_video(mp_image, timestamp_ms)
+# 输出: 33 个归一化坐标点 (x, y, z, visibility)
+```
+
+**33 个关键点包括：** 鼻子、左/右眼、左/右耳、左/右肩、左/右肘、左/右手腕、左/右髋、左/右膝、左/右脚踝等。我们重点使用以下 7 个点进行坐姿分析：
+
+| 序号 | 关键点 | 用途 |
+|------|--------|------|
+| 0 | 鼻子 | 低头检测 |
+| 7/8 | 左/右耳 | 头部位置参考 |
+| 11/12 | 左/右肩 | 驼背角度、歪坐检测 |
+| 23/24 | 左/右髋 | 躯干倾斜参考 |
+
+**模型规格：**
+- 文件大小：~4MB（pose_landmarker_lite.task）
+- 推理耗时：~15-30ms/帧 (CPU)
+- 精度：适合坐姿场景（非极端角度）
+
+---
+
+### 2.2 坐姿分类算法（基于角度规则）
+
+**是什么：** 不依赖额外模型，直接用关键点坐标计算几何关系来判断坐姿。
+
+**我们怎么用的：**
+
+```python
+# posture_classifier.py 四种不良坐姿的判定逻辑
+
+# ① 驼背检测：耳-肩-髋 三点角度
+angle = _angle(ear_mid, shoulder_mid, hip_mid)
+if angle < 155°:  → 驼背
+
+# ② 前倾检测：肩膀相对髋部的水平偏移
+forward_ratio = (shoulder_x - hip_x) / torso_length
+if forward_ratio > 8%:  → 前倾
+
+# ③ 低头检测：鼻子低于肩膀中点的垂直距离
+vertical_offset = (nose_y - shoulder_y) / frame_height
+if offset > 5%:  → 低头
+
+# ④ 歪坐检测：左右肩膀高度差
+shoulder_diff = |left_shoulder_y - right_shoulder_y| / frame_height
+if diff > 5%:  → 歪坐
+```
+
+**为什么不用模型分类：**
+- 训练数据难收集（坐姿标注成本高）
+- 几何规则可解释性强，方便调参
+- 延迟极低（纯数学计算，<1ms）
+- 对硬件端侧部署友好
+
+---
+
+### 2.3 双摄像头融合（精度增强）
+
+**为什么要双摄像头：**
+
+单正面摄像头的致命缺陷 —— **没有深度信息**：
+- 用户前倾 10cm，正面看变化很小
+- 用户驼背时肩膀角度在正面投影不明显
+- 侧面视角天然适合检测前后方向的姿态变化
+
+**融合策略：**
+
+```python
+# main.py 双摄融合逻辑
+
+# 正面摄像头 → 擅长检测：歪坐、基本驼背
+posture_front = classifier.classify(front_landmarks)
+
+# 侧面摄像头 → 擅长检测：驼背、前倾、低头
+posture_side = classifier.classify_side(side_landmarks)
+
+# 融合规则：侧面检测到问题但正面没有 → 信任侧面
+if posture_front == 'normal' and posture_side != 'normal':
+    final_posture = posture_side  # 侧面更准确
+```
+
+**侧面检测特殊优势：**
+
+```python
+# posture_classifier.py - classify_side()
+
+# 侧面视角中 x 轴 = 人体前后方向
+# 头部前伸比例 = 耳朵到肩膀的水平距离 / 躯干长度
+head_forward_ratio = |ear_x - shoulder_x| / torso_length
+if ratio > 40%:  → 头部前伸（典型的看屏幕姿态）
+
+# 侧面角度更精确
+side_angle = angle(ear, shoulder, hip)  # 侧面看驼背角度变化更明显
+```
+
+**实际摆放建议：**
+- 正面摄像头：显示器顶部或笔电摄像头
+- 侧面摄像头：桌面左/右侧 60-90° 位置
+- 没有侧面摄像头时自动降级为单摄模式
+
+---
+
+### 2.4 状态机（事件触发控制）
+
+**是什么：** 管理时间维度的逻辑——什么时候该触发提醒、什么时候该冷却。
+
+**我们怎么用的：**
+
+```python
+# state_machine.py 核心逻辑
+
+class StateMachine:
+    def update(self, posture):
+        # 每帧调用，更新计时器
+
+        # 1. 久坐累计（无论坐姿好坏）
+        self.total_sit_minutes += elapsed / 60
+
+        # 2. 不良坐姿持续时间
+        if posture != 'normal' and posture != 'unknown':
+            self.bad_posture_duration += elapsed
+        else:
+            self.bad_posture_duration = 0  # 恢复正常就清零
+
+        # 3. 触发条件判断
+        if self.bad_posture_duration >= 60:  # 不良坐姿持续60秒
+            return {'type': 'posture_alert', 'posture': posture, ...}
+
+        if self.total_sit_minutes >= 45:  # 久坐45分钟
+            return {'type': 'sit_alert', 'duration': 45, ...}
+
+        # 4. 冷却机制：触发后10分钟不重复
+        if time_since_last_alert < 600:
+            return None  # 冷却中，不触发
+```
+
+**设计考虑：**
+- 偶尔调整坐姿不应误触发 → 需要持续 60 秒才报警
+- 反复提醒会让人烦 → 10 分钟冷却期
+- 用户站起来应重置 → 手动按 R 或检测到离开
+
+---
+
+### 2.5 小米 MiMo AI Agent（智能决策中枢）
+
+**是什么：** 小米发布的大语言模型，支持 OpenAI 兼容协议和 Function Calling。
+
+**我们怎么用的：**
+
+```python
+# agent.py 核心逻辑
+
+from openai import OpenAI
+
+client = OpenAI(
+    api_key="tp-citq4zz53l21dntvf6oyh831kauktdf558hmiw1tibzuyexo",
+    base_url="https://token-plan-cn.xiaomimimo.com/v1"
+)
+
+# System Prompt — 定义 Agent 人设
+SYSTEM_PROMPT = """你是 DeskGuard AI 的健康教练 Agent。
+当收到坐姿异常事件时，你需要：
+1. 判断严重程度
+2. 用 send_notification 发送个性化的温馨提醒
+3. 用 set_led_color 设置灯光状态
+语气要友善鼓励，不要制造焦虑。"""
+
+# 定义 Agent 可调用的工具
+tools = [
     {
-      "name": "get_posture_data",
-      "description": "获取端侧当前或历史的姿态检测数据",
-      "parameters": {
-        "time_range": "string (e.g. 'now', 'last_1h', 'today', '2024-05-25')",
-        "metrics": ["posture_score", "slouch_count", "sit_duration", "stand_count", "focus_hours"]
-      }
+        "type": "function",
+        "function": {
+            "name": "send_notification",
+            "description": "发送桌面通知提醒用户",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "title": {"type": "string", "description": "通知标题"},
+                    "message": {"type": "string", "description": "通知内容"}
+                },
+                "required": ["title", "message"]
+            }
+        }
     },
     {
-      "name": "set_led_pattern",
-      "description": "设置LED灯光模式（颜色、动画、亮度）",
-      "parameters": {
-        "pattern": "string (e.g. 'warning_yellow', 'breathing_green', 'alert_red', 'rainbow')",
-        "brightness": "number 0-100",
-        "duration_sec": "number"
-      }
-    },
-    {
-      "name": "send_reminder",
-      "description": "发送提醒通知到用户设备",
-      "parameters": {
-        "channel": "string (pc_popup | app_push | both)",
-        "title": "string",
-        "message": "string",
-        "priority": "string (gentle | normal | urgent)"
-      }
-    },
-    },
-    {
-      "name": "get_calendar",
-      "description": "获取用户日程信息（用于避让决策）",
-      "parameters": {
-        "time_range": "string (next_30min | today | this_week)"
-      }
-    },
-    {
-      "name": "get_history",
-      "description": "获取用户历史健康数据和Agent交互记录",
-      "parameters": {
-        "days": "number",
-        "include": ["daily_scores", "reminders_sent", "user_feedback", "trends"]
-      }
-    },
-    {
-      "name": "generate_report",
-      "description": "生成并发送健康效率报告",
-      "parameters": {
-        "type": "string (daily | weekly | monthly)",
-        "format": "string (text | rich_card | pdf)",
-        "send_to": "string (app | pc | email)"
-      }
-    },
-    {
-      "name": "set_user_prefs",
-      "description": "更新用户偏好设置（提醒频率、方式等）",
-      "parameters": {
-        "key": "string",
-        "value": "any"
-      }
+        "type": "function",
+        "function": {
+            "name": "set_led_color",
+            "description": "设置LED灯颜色反映当前状态",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "color": {
+                        "type": "string",
+                        "enum": ["green", "yellow", "red"],
+                        "description": "green=正常, yellow=警告, red=严重"
+                    }
+                },
+                "required": ["color"]
+            }
+        }
     }
-  ]
-}
+]
+
+# 调用流程
+response = client.chat.completions.create(
+    model="MiMo-MoE-RL-2503",
+    messages=[
+        {"role": "system", "content": SYSTEM_PROMPT},
+        {"role": "user", "content": f"事件: {event_type}, 坐姿: {posture}, 持续: {duration}秒"}
+    ],
+    tools=tools,
+    tool_choice="auto"  # Agent 自己决定调用哪些工具
+)
+
+# Agent 返回 Function Call → 本地执行
+for tool_call in response.choices[0].message.tool_calls:
+    if tool_call.function.name == "send_notification":
+        # 弹出 Windows 桌面通知
+        send_notification(args['title'], args['message'])
+    elif tool_call.function.name == "set_led_color":
+        # 改变 LED 灯颜色
+        set_led_color(args['color'])
 ```
 
-### 3.3 Agent System Prompt
+**为什么用 Function Calling 而不是直接模板：**
 
-```
-你是 DeskGuard AI 健康教练，运行在用户桌面的智能硬件上。
-
-你的职责：
-1. 基于端侧实时检测的坐姿数据，决定何时、以何种方式提醒用户
-2. 通过自然语言与用户对话，回答健康问题、调整设置
-3. 生成个性化的健康洞察和报告
-4. 学习用户偏好，持续优化提醒策略
-
-决策原则：
-- 深度专注时不打扰（除非坐姿问题严重）
-- 优先使用温和方式（灯光→语音→弹窗，逐级升级）
-- 结合日程信息，选择合适的提醒时机
-- 记住用户偏好（如"下午少提醒"、"会议中不打扰"）
-- 鼓励为主，不制造焦虑
-
-隐私规则：
-- 你永远不会接收到图像数据，只有结构化坐标和分类标签
-- 不记录用户的具体工作内容
-- 所有建议基于健康数据，不涉及工作评价
-```
-
-### 3.4 Agent 决策流程
-
-```
-┌────────────────────────────────────────────────────────────────┐
-│                    Agent 决策流程 (每次触发)                     │
-├────────────────────────────────────────────────────────────────┤
-│                                                                │
-│  1. 触发条件                                                    │
-│     ├── 端侧异常上报（驼背>60s / 久坐>45min / ...）            │
-│     ├── 用户主动对话（语音/文字）                               │
-│     └── 定时触发（日报生成 / 周期性check）                      │
-│                                                                │
-│  2. Agent 上下文组装                                            │
-│     ├── 当前感知数据 → get_posture_data("now")                 │
-│     ├── 用户历史偏好 → Agent Memory                            │
-│     ├── 日程信息 → get_calendar("next_30min")                  │
-│     └── 最近交互记录 → get_history(1)                          │
-│                                                                │
-│  3. Agent 推理决策 (Seed 2.0)                                   │
-│     ├── 判断是否需要干预                                        │
-│     ├── 选择干预方式和强度                                      │
-│     └── 生成个性化内容                                          │
-│                                                                │
-│  4. 执行 Function Call                                          │
-│     ├── set_led_pattern() → 灯光反馈                           │
-│     ├── speak_tts() → 语音提醒                                 │
-│     ├── send_reminder() → 弹窗/推送                            │
-│     └── generate_report() → 报告                               │
-│                                                                │
-│  5. 反馈闭环                                                    │
-│     ├── 记录用户响应（接受/忽略/调整）                          │
-│     ├── 更新Agent Memory                                       │
-│     └── 优化后续策略                                            │
-│                                                                │
-└────────────────────────────────────────────────────────────────┘
-```
-
----
-
-## 四、端侧 AI 感知层
-
-### 4.1 核心芯片
-
-| 项目 | 规格 |
-|------|------|
-| SoC | Rockchip RV1106 |
-| CPU | ARM Cortex-A7 @ 1.2GHz |
-| NPU | RKNN 0.5 TOPS (INT8) |
-| 内存 | 64MB DDR2 (内封) |
-| 系统 | Linux Buildroot |
-| 成本 | ~¥15 |
-
-### 4.2 端侧 AI 模型
-
-| 模型 | 功能 | 大小 | 性能 |
-|------|------|------|------|
-| MoveNet Lightning | 17关键点人体姿态 | ~3MB (INT8) | <10ms, 30fps |
-| MobileNetV3-small | 5类坐姿分类 | ~2MB (INT8) | <5ms |
-
-**端侧处理流程：**
-```
-摄像头帧 → NPU推理(MoveNet) → 17个关键点坐标 
-→ NPU推理(MobileNetV3) → 坐姿分类标签 
-→ 本地状态机(驼背计时/久坐累计/起身计数) 
-→ 触发条件满足 → 上报结构化数据到Agent
-```
-
-**上报数据格式（示例）：**
-```json
-{
-  "timestamp": "2024-05-25T14:32:00Z",
-  "event": "posture_alert",
-  "data": {
-    "posture_class": "slouch",
-    "duration_sec": 65,
-    "shoulder_angle_deg": 12.3,
-    "head_forward_cm": 5.2,
-    "continuous_sit_min": 48,
-    "focus_score": 0.72
-  }
-}
-```
-
-> ⚠️ **隐私设计：** 图像帧处理完后立即丢弃，从不缓存、从不上传。仅结构化数值离开设备。
-
-### 4.3 传感器配置
-
-| 传感器 | 型号 | 功能 | 接口 |
-|--------|------|------|------|
-| 摄像头 | GC2053 | 200万像素RGB | MIPI CSI |
-| 环境光 | BH1750 | 光照度检测 | I2C |
-| 温湿度 | SHT30 | 环境舒适度 | I2C |
-
----
-
-## 五、硬件方案设计
-
-### 5.1 产品形态
-
-**显示器顶部 AI 健康伴侣灯** — 类似 ScreenBar 外形，集成全部功能。
-
-**外观设计要素：**
-- 磨砂铝合金外壳，极简工业风
-- WS2812B RGB LED 灯带（情绪/状态反馈）
-- 隐藏式摄像头（物理遮蔽开关）
-- 正面极简，无按钮（语音交互为主）
-
-### 5.2 BOM 成本
-
-| 组件 | 型号 | 单价 |
+| 方案 | 缺点 | Agent + Function Calling 的优势 |
 |------|------|------|
-| 主控 SoC | RV1106 | ¥15 |
-| 摄像头模组 | GC2053 | ¥12 |
-| Wi-Fi | RTL8189FTV | ¥8 |
-| LED灯带 | WS2812B ×12 | ¥6 |
-| 环境光 | BH1750 | ¥2 |
-| 温湿度 | SHT30 | ¥4 |
-| PCB+结构件 | — | ¥15 |
-| **基础版合计** | | **~¥70** |
-| 增强版（+BLE+更大内存） | | ~¥120 |
+| 固定模板 "你驼背了，请调整" | 千篇一律，用户很快免疫 | 每次生成不同的提醒文案 |
+| if/else 决定提醒方式 | 规则写死，扩展困难 | Agent 自己决定调什么工具 |
+| 硬编码灯光颜色 | 无法感知上下文 | Agent 根据严重程度选颜色 |
 
----
-
-## 六、通信与数据流
-
-### 6.1 设备 ↔ Agent 通信
-
+**实际效果示例：**
 ```
-设备端 (RV1106)                      云端 (DeepSeek)
-     │                                    │
-     │  ──── Wi-Fi / MQTT ────────────▶   │
-     │  结构化事件数据 (JSON)               │  DeepSeek
-     │  (坐标/标签/时间戳)                  │  Agent 推理
-     │                                    │
-     │  ◀──── MQTT / HTTP ────────────    │
-     │  Function Call 指令                 │
-     │  (set_led/speak_tts/...)           │
-     │                                    │
+输入事件: posture_alert, 坐姿: slouch, 持续: 65秒
+Agent 输出:
+  → send_notification("坐姿提醒", "检测到你驼背超过1分钟了，试试挺直腰背，深呼吸三次放松肩膀吧~")
+  → set_led_color("yellow")
+```
+
+**Fallback 机制：** 如果 API 调用失败（网络问题），使用本地模板替代：
+
+```python
+FALLBACK_TEMPLATES = {
+    'posture_alert': [
+        {'function': 'send_notification', 'args': {'title': '坐姿提醒', 'message': '注意调整坐姿'}},
+        {'function': 'set_led_color', 'args': {'color': 'yellow'}},
+    ],
+    ...
+}
 ```
 
 ---
 
-## 七、核心交互场景
+### 2.6 通知与输出系统
 
-### 场景1：智能坐姿提醒
+**桌面通知（plyer + ctypes）：**
 
-```
-时间线：
-09:00  用户开始办公
-09:45  端侧检测：连续坐姿45min + 驼背60s
-       → 上报Agent
-       Agent: get_calendar("next_30min") → 10:00有会议
-       Agent决策：会前15min不打扰，记录待提醒
-10:02  会议结束，端侧检测到伸展动作
-       Agent: send_reminder("会开完啦，站起来活动一下吧")
-       Agent: set_led_pattern("breathing_green", 30s)
-10:05  用户起身 → Agent记录：会后提醒接受率高
-```
+```python
+# notifier.py
 
-### 场景2：自然语言健康对话
+from plyer import notification
+import ctypes
 
-```
-用户："我今天坐姿怎么样？"
-Agent: get_posture_data("today")
-       → 返回：{sit_5.2h, slouch_12, stand_8, score_76}
-Agent回复："今天坐了5.2小时，驼背12次（集中在下午2-4点），
-          起身8次。评分76分，比昨天进步5分！建议下午开始时
-          做一次肩颈拉伸。"
-
-用户："提醒太频繁了"
-Agent: set_user_prefs("reminder_interval", "45min")
-Agent回复："好的，已将间隔从30分钟调整为45分钟，只在非专注
-          状态时提醒。随时告诉我再调整。"
+def send_notification(title, message):
+    try:
+        # 方案1: plyer 跨平台通知
+        notification.notify(title=title, message=message, timeout=8)
+    except:
+        # 方案2: Windows MessageBox 兜底
+        ctypes.windll.user32.MessageBoxW(0, message, title, 0x40)
 ```
 
-### 场景3：AI 生成日报
+**LED 灯光模拟：**
+- 在 OpenCV 窗口右上角绘制色块模拟 LED 灯
+- 绿色 = 一切正常
+- 黄色 = 姿态警告
+- 红色 = 久坐警报
+- 未来硬件版本将驱动实体 WS2812B LED 灯带
 
-```
-每日21:00自动触发：
-Agent: get_posture_data("today") + get_history(7)
-Agent: generate_report("daily", "rich_card", "app")
+---
 
-生成内容：
-📋 5.25 健康效率日报 · 评分 82/100
-• 总坐时 5.2h | 驼背12次 | 起身8次 | 深度专注 3.8h
-• 洞察：下午2-4点坐姿最差，午后疲劳相关
-• 本周驼背减少18%，保持趋势！
-• 建议：午后设置5分钟肩颈放松提醒
+### 2.7 PIL 中文渲染（OpenCV 中文支持）
+
+**问题：** OpenCV 的 `putText()` 不支持中文字符（显示为问号）。
+
+**解决方案：** 通过 Pillow 库渲染中文到图像：
+
+```python
+from PIL import ImageFont, ImageDraw, Image
+
+# 加载 Windows 自带微软雅黑字体
+font = ImageFont.truetype("C:/Windows/Fonts/msyh.ttc", 28)
+
+def put_chinese_text(img, text, pos, font, color_bgr):
+    # OpenCV BGR → PIL RGB
+    img_pil = Image.fromarray(cv2.cvtColor(img, cv2.COLOR_BGR2RGB))
+    draw = ImageDraw.Draw(img_pil)
+    draw.text(pos, text, font=font, fill=color_rgb)
+    # PIL RGB → OpenCV BGR
+    return cv2.cvtColor(np.array(img_pil), cv2.COLOR_RGB2BGR)
 ```
 
 ---
 
-## 八、数据闭环与学习机制
+## 三、数据流与时序
 
 ```
-┌──────┐     ┌──────┐     ┌──────┐     ┌──────┐     ┌──────┐
-│ 感知  │ ──▶ │Agent │ ──▶ │ 执行  │ ──▶ │ 反馈  │ ──▶ │ 学习  │
-│ 状态  │     │ 决策  │     │ 提醒  │     │ 响应  │     │ 优化  │
-└──────┘     └──────┘     └──────┘     └──────┘     └──────┘
-     ▲                                                    │
-     └────────────────── 策略更新 ◀───────────────────────┘
+每帧处理流程 (~30fps):
 
-学习内容：
-• 用户偏好的提醒方式（灯光 vs 语音 vs 弹窗）
-• 用户接受提醒的最佳时机（会后、伸展时、自然间隙）
-• 用户的工作节奏模式（上午高专注、下午易疲劳）
-• 阈值自适应（敏感用户降低阈值，耐受用户提高阈值）
+摄像头帧 (640×480 BGR)
+    │
+    ▼
+cv2.flip() 镜像翻转
+    │
+    ├──── 正面帧 ────────────────────────┐
+    │                                     │
+    ▼                                     ▼
+MediaPipe PoseLandmarker          MediaPipe PoseLandmarker
+(正面 33 关键点)                    (侧面 33 关键点)
+    │                                     │
+    ▼                                     ▼
+PostureClassifier.classify()      PostureClassifier.classify_side()
+(正面: 歪坐/基本驼背)              (侧面: 精确驼背/前倾/低头)
+    │                                     │
+    └────────── 融合 ─────────────────────┘
+                  │
+                  ▼
+          最终坐姿分类结果
+                  │
+                  ▼
+          StateMachine.update()
+          (计时 + 条件判断)
+                  │
+            ┌─────┴──────┐
+            │ 无事件     │ 有事件
+            ▼            ▼
+         正常渲染     异步线程调用 MiMo Agent
+                         │
+                         ▼
+                  Agent 返回 Function Calls
+                         │
+                         ▼
+                  执行: 通知 + LED
+```
 
-效果指标：
-• 第1周：默认规则，接受率~60%
-• 第4周：学会避开会议和专注时段，接受率~75%
-• 第8周：完全个性化，接受率~85%
+**触发 → Agent 响应延迟：** ~1-3秒（取决于网络和 API 响应速度）
+
+---
+
+## 四、项目文件结构
+
+```
+d:\thundersoft\demo\
+├── main.py                      # 主循环：摄像头 → 检测 → 分类 → Agent → 渲染
+├── config.py                    # 所有可调参数（API Key、阈值、摄像头编号）
+├── pose_detector.py             # MediaPipe PoseLandmarker 封装
+├── posture_classifier.py        # 坐姿分类器（正面 + 侧面两套规则）
+├── state_machine.py             # 计时器 + 触发逻辑 + 冷却机制
+├── agent.py                     # MiMo AI Agent 调用 + Function Calling
+├── notifier.py                  # 桌面通知 + LED 状态管理
+├── pose_landmarker_lite.task    # MediaPipe 模型文件 (~4MB)
+└── requirements.txt             # Python 依赖
 ```
 
 ---
 
-## 九、隐私与安全设计
+## 五、依赖技术栈
 
-| 层面 | 措施 |
+| 技术 | 版本 | 用途 | 为什么选它 |
+|------|------|------|------|
+| **MediaPipe** | 0.10.35 | 人体姿态检测 | Google 出品，精度高，免费，Task API 简洁 |
+| **OpenCV** | 4.8+ | 摄像头读取 + UI 渲染 | 工业标准，稳定可靠 |
+| **OpenAI SDK** | 1.0+ | 调用 MiMo API | MiMo 兼容 OpenAI 协议，直接复用 |
+| **小米 MiMo** | MoE-RL-2503 | AI Agent 推理 | 国产大模型，支持 Function Calling |
+| **Pillow** | 10+ | 中文文字渲染 | 解决 OpenCV 不支持中文的问题 |
+| **plyer** | 2.1+ | 跨平台桌面通知 | 无需额外配置，一行代码弹通知 |
+| **NumPy** | — | 向量/角度计算 | 数值计算标准库 |
+| **Python** | 3.12 | 开发语言 | 生态丰富，原型开发快 |
+
+---
+
+## 六、可调参数说明
+
+```python
+# config.py 中所有可调参数
+
+# 检测灵敏度
+SLOUCH_ANGLE_THRESHOLD = 155     # 越大越敏感（160=轻微驼背就报）
+HEAD_DOWN_THRESHOLD = 20         # 越小越敏感
+SHOULDER_TILT_THRESHOLD = 0.05   # 越小越敏感（0.03=轻微歪就报）
+LEAN_FORWARD_THRESHOLD = 0.08    # 越小越敏感
+
+# 提醒策略
+POSTURE_ALERT_SECONDS = 60       # 不良坐姿持续多久触发（可改为30快速测试）
+SIT_DURATION_MINUTES = 45        # 久坐多久触发
+COOLDOWN_MINUTES = 10            # 两次提醒间隔
+
+# 摄像头
+CAMERA_INDEX = 0                 # 正面摄像头（0=默认）
+SIDE_CAMERA_INDEX = 1            # 侧面摄像头（-1=不使用）
+```
+
+---
+
+## 七、隐私设计
+
+| 措施 | 说明 |
 |------|------|
-| 图像处理 | 100%端侧处理，帧用完即丢，从不存储/上传 |
-| 数据上传 | 仅结构化数值（坐标、角度、标签、时间戳） |
-| 物理隔离 | 摄像头物理遮蔽开关，硬件级隐私保证 |
-| Agent记忆 | 仅存储健康偏好，不存储工作内容 |
-| 通信加密 | TLS 1.3 端到端加密 |
-| 本地模式 | 支持纯离线运行（仅端侧规则引擎，无Agent对话） |
+| 图像不离开本地 | 摄像头帧仅在内存中处理，处理完即丢弃 |
+| Agent 不接收图像 | 仅发送文字事件（"slouch, 65秒"），绝不上传视频/图片 |
+| 模型在本地运行 | MediaPipe 模型完全离线，不联网 |
+| 可物理断开 | 侧面摄像头随时拔除，不影响运行 |
 
 ---
 
-## 十、成本与商业模式
+## 八、从 Demo 到产品的路径
 
-### 10.1 硬件成本
-
-- **基础版 BOM：** ~¥70（量产售价 ¥299-399）
-- **增强版 BOM：** ~¥120（量产售价 ¥499-699）
-
-### 10.2 Agent 运行成本
-
-| 场景 | 日均调用 | Token消耗 | 日成本 |
-|------|----------|-----------|--------|
-| 被动提醒（端侧触发） | ~20次 | ~2万token | ~0.1元 |
-| 主动对话 | ~5次 | ~1万token | ~0.05元 |
-| 日报生成 | 1次 | ~3000token | ~0.05元 |
-| **合计** | | | **~0.2元/天** |
-
-月度Agent成本：约6元 → 可通过订阅服务覆盖
-
-### 10.3 商业模式
-
-| 模式 | 说明 |
-|------|------|
-| 硬件销售 | 一次性购买设备 |
-| 基础AI服务 | 免费（有限次Agent对话） |
-| Pro订阅 | ¥9.9/月（无限对话、高级报告、多设备） |
-| 企业版 | ¥19.9/工位/月（管理后台、匿名聚合看板） |
+| 阶段 | 当前 Demo | 硬件原型 | 量产产品 |
+|------|-----------|----------|----------|
+| 感知 | PC 摄像头 + MediaPipe CPU | 树莓派4B + USB摄像头 | RV1106 NPU + GC2053 |
+| AI | MiMo API (云端) | MiMo API (云端) | 端侧规则 + 云端 Agent |
+| 输出 | Windows 通知 + OpenCV色块 | GPIO LED + 通知 | WS2812B LED灯带 + App |
+| 形态 | 桌面窗口 | 原型板 | 显示器顶灯形态 |
 
 ---
 
-## 十一、技术栈总览
+## 九、运行方式
 
-| 层级 | 技术 |
-|------|------|
-| AI Agent | DeepSeek、DeepSeek API、Function Calling |
-| 语音 | 火山引擎 TTS/ASR |
-| 端侧AI | RKNN SDK 2.0、MoveNet Lightning、MobileNetV3 |
-| 硬件 | RV1106、GC2053、BH1750、SHT30、WS2812B |
-| 通信 | Wi-Fi RTL8189、MQTT、BLE 5.0 |
-| 客户端 | Tauri (PC)、Flutter (App)、React |
-| 后端 | Node.js、SQLite、Docker |
-| 协议 | MQTT over TLS、HTTP/2 |
+```bash
+cd d:\thundersoft\demo
+pip install -r requirements.txt
+python main.py
+```
 
----
-
-## 十二、开发计划
-
-| 阶段 | 时间 | 交付物 |
-|------|------|--------|
-| P0 原型验证 | 2周 | RV1106 + MoveNet 端侧DEMO、Agent对话DEMO |
-| P1 核心功能 | 4周 | 端云联调、Function Calling 全链路、LED控制 |
-| P2 产品化 | 4周 | 外壳设计、App开发、语音交互、OTA |
-| P3 优化迭代 | 持续 | 数据闭环、个性化学习、企业版 |
+- 按 **Q** 退出
+- 按 **R** 重置久坐计时
+- 正面摄像头 = 编号 0（默认）
+- 侧面摄像头 = 编号 1（可选，`config.py` 中设 `-1` 禁用）
 
 ---
 
-## 附录：与传统方案对比
-
-| 维度 | 传统规则引擎方案 | DeskGuard AI Agent 方案 |
-|------|------------------|-------------------------|
-| 决策方式 | 固定阈值 + if/else | 大模型理解 + 推理 |
-| 提醒内容 | 模板文案 | 自然语言个性化生成 |
-| 用户交互 | 按钮/开关 | 自然语言对话 |
-| 适应能力 | 手动调参 | Agent 自动学习偏好 |
-| 日程感知 | 无 | Function Calling获取日历 |
-| 报告质量 | 数据罗列 | AI洞察+趋势+建议 |
-| 扩展性 | 需改代码 | 新增 Tool 即可 |
-| 成本 | 纯硬件成本 | +约0.2元/天Agent成本 |
-
----
-
-*DeskGuard AI — 不只是检测，更是你的 AI 健康教练。*
+*DeskGuard AI — 看得见姿态、懂得了状态、会主动关心你的 AI 桌面健康助手。*
